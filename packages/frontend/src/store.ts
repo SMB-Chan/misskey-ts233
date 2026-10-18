@@ -99,7 +99,7 @@ export const store = markRaw(new Pizzax('base', {
 	},
 	accountTokens: {
 		where: 'device',
-		default: {} as Record<string, string>, // host/userId, token
+		default: {} as Record<string, string>, // `${host}/${userId}` -> token。IndexedDB `pizzax::base` に保存し、SW もここを読む
 	},
 	accountInfos: {
 		where: 'device',
