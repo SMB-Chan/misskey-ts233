@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from 'vitest';
 import type * as Misskey from 'misskey-js';
-import { isNotificationForNote } from '@/utility/notification-note.js';
+import { isNotificationForNote, noteIdsForNotificationCapture } from '@/utility/notification-note.js';
 import { Paginator } from '@/utility/paginator.js';
 
 const DELETED_NOTE_ID = 'note-deleted';
@@ -43,6 +43,27 @@ describe('isNotificationForNote', () => {
 		for (const type of ['follow', 'followRequestAccepted', 'login', 'achievementEarned', 'test']) {
 			expect(isNotificationForNote(notification(`${type}-1`, type), DELETED_NOTE_ID)).toBe(false);
 		}
+	});
+});
+
+describe('noteIdsForNotificationCapture', () => {
+	test('includes the notification note and an embedded reply or renote', () => {
+		const reply = {
+			id: 'notification-reply',
+			type: 'reply',
+			createdAt: '2026-05-24T00:00:00.000Z',
+			note: {
+				id: 'reply-note',
+				reply: { id: 'parent-note' },
+				renote: { id: 'quoted-note' },
+			},
+		} as Misskey.entities.Notification;
+
+		expect(noteIdsForNotificationCapture([
+			reply,
+			notification('mention-1', 'mention', 'reply-note'),
+			notification('follow-1', 'follow'),
+		])).toEqual(['reply-note', 'parent-note', 'quoted-note']);
 	});
 });
 

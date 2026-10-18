@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="note" :class="$style.root">
+<div v-if="note && !deleted" :class="$style.root">
 	<MkAvatar :class="[$style.avatar, prefer.s.useStickyIcons ? $style.useSticky : null]" :user="note.user" link preview/>
 	<div :class="$style.main">
 		<MkNoteHeader :class="$style.header" :note="note" :mini="true"/>
@@ -27,6 +27,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { ref } from 'vue';
 import * as Misskey from 'misskey-js';
+import { useGlobalEvent } from '@/events.js';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkSubNoteContent from '@/components/MkSubNoteContent.vue';
 import MkCwButton from '@/components/MkCwButton.vue';
@@ -38,6 +39,11 @@ const props = defineProps<{
 }>();
 
 const showContent = ref(false);
+const deleted = ref(false);
+
+useGlobalEvent('noteDeleted', (noteId) => {
+	if (props.note?.id === noteId) deleted.value = true;
+});
 </script>
 
 <style lang="scss" module>
