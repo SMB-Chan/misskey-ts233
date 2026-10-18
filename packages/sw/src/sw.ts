@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: AGPL-3.0-only
  */
 
-import { get } from 'idb-keyval';
 import * as Misskey from 'misskey-js';
 import { FETCH_TIMEOUT_MS } from '@/const.js';
 import type { PushNotificationDataMap } from '@/types.js';
 import type { I18n } from '@@/js/i18n.js';
 import type { Locale } from 'i18n';
 import { createEmptyNotification, createNotification } from '@/scripts/create-notification.js';
+import { getStoredAccounts } from '@/scripts/get-account-from-id.js';
 import { swLang } from '@/scripts/lang.js';
 import * as swos from '@/scripts/operations.js';
 
@@ -202,8 +202,8 @@ globalThis.addEventListener('notificationclick', (ev: ServiceWorkerGlobalScopeEv
 					case 'markAllAsRead':
 						await globalThis.registration.getNotifications()
 							.then(notifications => notifications.forEach(n => n.tag !== 'read_notification' && n.close()));
-						await get<Pick<Misskey.entities.SignupResponse, 'id' | 'token'>[]>('accounts').then(accounts => {
-							return Promise.all((accounts ?? []).map(async account => {
+						await getStoredAccounts().then(accounts => {
+							return Promise.all(accounts.map(async account => {
 								await swos.sendMarkAllAsRead(account.id);
 							}));
 						});
