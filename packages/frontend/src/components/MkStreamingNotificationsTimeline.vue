@@ -55,7 +55,9 @@ import { i18n } from '@/i18n.js';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import { prefer } from '@/preferences.js';
 import { store } from '@/store.js';
+import { useGlobalEvent } from '@/events.js';
 import { isSeparatorNeeded, getSeparatorInfo } from '@/utility/timeline-date-separate.js';
+import { isNotificationForNote } from '@/utility/notification-note.js';
 import { Paginator } from '@/utility/paginator.js';
 
 const props = defineProps<{
@@ -157,6 +159,13 @@ function onNotification(notification: Misskey.entities.Notification) {
 function reload() {
 	return paginator.reload();
 }
+
+// ノート削除は noteDeleted として届く。タイムラインはこれで項目を消すが、
+// 通知カラムは notification / notificationFlushed しか購読しておらず、再取得するまで残る。
+// 再取得時は参照ノートが無い通知が落ちるので、同じ条件で表示中・未表示キューから外す。
+useGlobalEvent('noteDeleted', (noteId) => {
+	paginator.removeWhere(notification => isNotificationForNote(notification, noteId));
+});
 
 let connection: Misskey.IChannelConnection<Misskey.Channels['main']> | null = null;
 
