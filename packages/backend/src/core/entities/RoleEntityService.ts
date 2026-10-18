@@ -28,12 +28,22 @@ export class RoleEntityService {
 	) {
 	}
 
+	public pack(
+		src: MiRole,
+		me?: { id: MiUser['id'] } | null | undefined,
+	): Promise<Packed<'Role'>>;
+	public pack(
+		src: MiRole['id'],
+		me?: { id: MiUser['id'] } | null | undefined,
+	): Promise<Packed<'Role'> | null>;
 	@bindThis
 	public async pack(
 		src: MiRole['id'] | MiRole,
 		me?: { id: MiUser['id'] } | null | undefined,
-	): Promise<Packed<'Role'>> {
-		const role = typeof src === 'object' ? src : await this.rolesRepository.findOneByOrFail({ id: src });
+	): Promise<Packed<'Role'> | null> {
+		const role = typeof src === 'object' ? src : await this.rolesRepository.findOneBy({ id: src });
+		// ロール削除後も通知などが ID だけを保持している。見つからない場合は例外にせず呼び出し側で欠落として扱う
+		if (role == null) return null;
 
 		const assignedCount = await this.roleAssignmentsRepository.createQueryBuilder('assign')
 			.where('assign.roleId = :roleId', { roleId: role.id })
