@@ -4,7 +4,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 -->
 
 <template>
-<div v-if="note == null" :class="$style.deleted">
+<div v-if="note == null || deleted" :class="$style.deleted">
 	{{ i18n.ts.deletedNote }}
 </div>
 <div v-else-if="!muted" :class="[$style.root, { [$style.children]: depth > 1 }]">
@@ -45,6 +45,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 <script lang="ts" setup>
 import { ref } from 'vue';
 import * as Misskey from 'misskey-js';
+import { useGlobalEvent } from '@/events.js';
 import MkNoteHeader from '@/components/MkNoteHeader.vue';
 import MkSubNoteContent from '@/components/MkSubNoteContent.vue';
 import MkCwButton from '@/components/MkCwButton.vue';
@@ -66,6 +67,11 @@ const props = withDefaults(defineProps<{
 });
 
 const muted = ref(props.note && $i ? checkWordMute(props.note, $i, $i.mutedWords) : false);
+const deleted = ref(false);
+
+useGlobalEvent('noteDeleted', (noteId) => {
+	if (props.note?.id === noteId) deleted.value = true;
+});
 
 const showContent = ref(false);
 const replies = ref<Misskey.entities.Note[]>([]);

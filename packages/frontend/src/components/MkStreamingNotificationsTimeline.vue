@@ -42,7 +42,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 </template>
 
 <script lang="ts" setup>
-import { onUnmounted, onMounted, computed, useTemplateRef, TransitionGroup, markRaw, watch } from 'vue';
+import { onUnmounted, onMounted, computed, ref, useTemplateRef, TransitionGroup, markRaw, watch } from 'vue';
 import * as Misskey from 'misskey-js';
 import { notificationTypes } from 'misskey-js';
 import { useInterval } from '@@/js/use-interval.js';
@@ -55,7 +55,11 @@ import { i18n } from '@/i18n.js';
 import MkPullToRefresh from '@/components/MkPullToRefresh.vue';
 import { prefer } from '@/preferences.js';
 import { store } from '@/store.js';
+import { globalEvents, useGlobalEvent } from '@/events.js';
+import { misskeyApi } from '@/utility/misskey-api.js';
 import { isSeparatorNeeded, getSeparatorInfo } from '@/utility/timeline-date-separate.js';
+import { isNotificationForNote, noteIdsForNotificationCapture } from '@/utility/notification-note.js';
+import { subscribeNoteDeleted } from '@/utility/note-deleted-subscription.js';
 import { Paginator } from '@/utility/paginator.js';
 
 const props = defineProps<{
@@ -125,12 +129,70 @@ watch(rootEl, (el) => {
 
 const visibility = useDocumentVisibility();
 let isPausingUpdate = false;
+// 非表示中に届いた通知は描画されないため、MkNote 経由ではノートを購読できない。
+const pendingNoteIds = ref<string[]>([]);
+const goneNoteIds = new Set<string>();
+const heldNoteIds = new Set<string>();
+const captureDisposers = new Map<string, () => void>();
 
-watch(visibility, () => {
+function captureIds(): string[] {
+	return noteIdsForNotificationCapture(paginator.items.value)
+		.concat(pendingNoteIds.value)
+		.filter(id => !goneNoteIds.has(id));
+}
+
+function releaseCapture(noteId: string): void {
+	captureDisposers.get(noteId)?.();
+	captureDisposers.delete(noteId);
+	heldNoteIds.delete(noteId);
+}
+
+function syncCaptures(): void {
+	if (!store.s.realtimeMode) return;
+	const needed = new Set(captureIds());
+	for (const noteId of [...heldNoteIds]) {
+		if (!needed.has(noteId)) releaseCapture(noteId);
+	}
+	const connection = needed.size > 0 ? useStream() : null;
+	for (const noteId of needed) {
+		if (heldNoteIds.has(noteId) || connection == null) continue;
+		heldNoteIds.add(noteId);
+		captureDisposers.set(noteId, subscribeNoteDeleted(connection, noteId, (id) => {
+			globalEvents.emit('noteDeleted', id);
+		}));
+	}
+}
+
+watch(computed(() => captureIds().join('\n')), () => {
+	syncCaptures();
+});
+
+watch(computed(() => noteIdsForNotificationCapture(paginator.items.value).join('\n')), () => {
+	const visible = new Set(noteIdsForNotificationCapture(paginator.items.value));
+	const next = pendingNoteIds.value.filter(id => !visible.has(id));
+	if (next.length !== pendingNoteIds.value.length) pendingNoteIds.value = next;
+});
+
+async function reconcileDeletedNotes(): Promise<void> {
+	const ids = [...new Set(captureIds())];
+	for (let index = 0; index < ids.length; index += 100) {
+		const chunk = ids.slice(index, index + 100);
+		const found = await misskeyApi('notes/show-partial-bulk', { noteIds: chunk }).catch(() => null);
+		if (found == null) return;
+		const alive = new Set(found.map(note => note.id));
+		for (const noteId of chunk) {
+			if (!alive.has(noteId)) globalEvents.emit('noteDeleted', noteId);
+		}
+	}
+}
+
+watch(visibility, async () => {
 	if (visibility.value === 'hidden') {
 		isPausingUpdate = true;
 	} else { // 'visible'
 		isPausingUpdate = false;
+		// 非表示中にソケットが止まっていると deleted を取りこぼす。再表示時に欠けているノートを落とす。
+		await reconcileDeletedNotes();
 		if (isTop()) {
 			releaseQueue();
 		}
@@ -149,14 +211,25 @@ function onNotification(notification: Misskey.entities.Notification) {
 		if (isTop() && !isPausingUpdate) {
 			paginator.prepend(notification);
 		} else {
+			pendingNoteIds.value = pendingNoteIds.value.concat(noteIdsForNotificationCapture([notification]));
 			paginator.enqueue(notification);
 		}
 	}
 }
 
 function reload() {
+	pendingNoteIds.value = [];
 	return paginator.reload();
 }
+
+// 表示中の MkNote だけがノートを購読していると、非表示タブのキューやリアクション通知は
+// deleted を受け取れない。通知の noteId（と返信元・引用元）をここでも購読する。
+// 再表示時の照合で、取りこぼした削除も再取得と同じく落とす。
+useGlobalEvent('noteDeleted', (noteId) => {
+	goneNoteIds.add(noteId);
+	pendingNoteIds.value = pendingNoteIds.value.filter(id => id !== noteId);
+	paginator.removeWhere(notification => isNotificationForNote(notification, noteId));
+});
 
 let connection: Misskey.IChannelConnection<Misskey.Channels['main']> | null = null;
 
@@ -165,7 +238,7 @@ onMounted(() => {
 
 	if (paginator.computedParams) {
 		watch(paginator.computedParams, () => {
-			paginator.reload();
+			reload();
 		}, { immediate: false, deep: true });
 	}
 
@@ -177,6 +250,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+	for (const noteId of [...heldNoteIds]) releaseCapture(noteId);
 	if (connection) connection.dispose();
 	if (scrollContainer != null) {
 		scrollContainer.removeEventListener('scroll', onScrollContainerScroll);

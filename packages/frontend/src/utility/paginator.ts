@@ -66,6 +66,7 @@ export interface IPaginator<T = unknown, _T = T & MisskeyEntity> {
 	enqueue(item: _T): void;
 	releaseQueue(): void;
 	removeItem(id: string): void;
+	removeWhere(predicate: (item: _T) => boolean): void;
 	updateItem(id: string, updater: (item: _T) => _T): void;
 }
 
@@ -174,6 +175,7 @@ export class Paginator<
 		this.enqueue = this.enqueue.bind(this);
 		this.releaseQueue = this.releaseQueue.bind(this);
 		this.removeItem = this.removeItem.bind(this);
+		this.removeWhere = this.removeWhere.bind(this);
 		this.updateItem = this.updateItem.bind(this);
 	}
 
@@ -411,6 +413,23 @@ export class Paginator<
 		if (index !== -1) {
 			this.items.value.splice(index, 1);
 			if (this.useShallowRef) triggerRef(this.items);
+		}
+	}
+
+	/**
+	 * 条件に一致する要素を、表示中のリストと未表示の先行キューの両方から取り除く。
+	 */
+	public removeWhere(predicate: (item: T) => boolean): void {
+		const nextItems = this.items.value.filter(item => !predicate(item));
+		if (nextItems.length !== this.items.value.length) {
+			this.items.value = nextItems;
+			if (this.useShallowRef) triggerRef(this.items);
+		}
+
+		const nextQueue = this.aheadQueue.filter(item => !predicate(item));
+		if (nextQueue.length !== this.aheadQueue.length) {
+			this.aheadQueue = nextQueue;
+			this.queuedAheadItemsCount.value = nextQueue.length;
 		}
 	}
 
